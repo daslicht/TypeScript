@@ -679,9 +679,9 @@ function cleanTestDirs() {
 }
 
 // used to pass data from jake command line directly to run.js
-function writeTestConfigFile(tests, light, testConfigFile) {
+function writeTestConfigFile(tests, light, parallelTasksFolder, workerCount, testConfigFile) {
     console.log('Running test(s): ' + tests);
-    var testConfigContents = JSON.stringify({ test: [tests], light: light });
+    var testConfigContents = JSON.stringify({ test: [tests], light: light, workerCount: workerCount, parallelTasksFolder: parallelTasksFolder });
     fs.writeFileSync('test.config', testConfigContents);
 }
 
@@ -700,9 +700,21 @@ function runConsoleTests(defaultReporter, defaultSubsets) {
     if(fs.existsSync(testConfigFile)) {
         fs.unlinkSync(testConfigFile);
     }
+    var workerCount, parallelTasksFolder;
+    if (defaultSubsets.length) {
+        var prefix = os.tmpdir() + "/ts-tests";
+        var i = 1;
+        do {
+            parallelTasksFolder = prefix + i;
+            i++;
+        } while (fs.existsSync(parallelTasksFolder));
+        fs.mkdirSync(parallelTasksFolder);
+        console.log(parallelTasksFolder);
+        workerCount = process.env.workerCount || os.cpus().length;
+    }
 
-    if (tests || light) {
-        writeTestConfigFile(tests, light, testConfigFile);
+    if (tests || light || parallelTasksFolder) {
+        writeTestConfigFile(tests, light, parallelTasksFolder, workerCount, testConfigFile);
     }
 
     if (tests && tests.toLocaleLowerCase() === "rwc") {
@@ -718,23 +730,12 @@ function runConsoleTests(defaultReporter, defaultSubsets) {
     // default timeout is 2sec which really should be enough, but maybe we just need a small amount longer
     var subsetRegexes;
     if(defaultSubsets.length === 0) {
-        subsetRegexes = [tests]
-    }
-    else {
-        var subsets = tests ? tests.split("|") : defaultSubsets;
-        subsetRegexes = subsets.map(function (sub) { return "^" + sub + ".*$"; });
-        subsetRegexes.push("^(?!" + subsets.join("|") + ").*$");
-    }
-    subsetRegexes.forEach(function (subsetRegex, i) {
+        var subsetRegex = tests
         tests = subsetRegex ? ' -g "' + subsetRegex + '"' : '';
         var cmd = "mocha" + (debug ? " --debug-brk" : "") + " -R " + reporter + tests + colors + ' -t ' + testTimeout + ' ' + run;
         console.log(cmd);
-        function finish() {
-            deleteTemporaryProjectOutput();
-            complete();
-        }
         exec(cmd, function () {
-            if (lintFlag && i === 0) {
+            if (false && lintFlag && i === 0) {
                 var lint = jake.Task['lint'];
                 lint.addListener('complete', function () {
                     complete();
@@ -743,7 +744,55 @@ function runConsoleTests(defaultReporter, defaultSubsets) {
             }
             finish();
         }, finish);
-    });
+        
+    }
+    else {
+        // partition
+        var cmd = "mocha " + " -R min " + colors + run;
+        console.log(cmd);
+        exec(cmd, function() {
+            var configFiles = fs.readdirSync(parallelTasksFolder);
+            var counter = configFiles.length;
+            configFiles.forEach(function (f) {
+                var configPath = path.join(parallelTasksFolder, f);
+                var workerCmd = "mocha" + " -t " + testTimeout + " -R " + reporter + " " + run + " --config='" + configPath + "'";
+                console.log(workerCmd);
+                exec(workerCmd, finishWorker, finishWorker) 
+            });
+            
+            function finishWorker() {
+                counter--;
+                if (counter === 0) {
+                    deleteTemporaryProjectOutput();
+                    jake.rmRf(parallelTasksFolder);
+                }
+                complete();
+            }
+        });
+    }
+    function finish() {
+        deleteTemporaryProjectOutput();
+        complete();
+    }
+    // subsetRegexes.forEach(function (subsetRegex, i) {
+    //     tests = subsetRegex ? ' -g "' + subsetRegex + '"' : '';
+    //     var cmd = "mocha" + (debug ? " --debug-brk" : "") + " -R " + reporter + tests + colors + ' -t ' + testTimeout + ' ' + run;
+    //     console.log(cmd);
+    //     function finish() {
+    //         deleteTemporaryProjectOutput();
+    //         complete();
+    //     }
+    //     exec(cmd, function () {
+    //         if (lintFlag && i === 0) {
+    //             var lint = jake.Task['lint'];
+    //             lint.addListener('complete', function () {
+    //                 complete();
+    //             });
+    //             lint.invoke();
+    //         }
+    //         finish();
+    //     }, finish);
+    // });
 }
 
 var testTimeout = 20000;

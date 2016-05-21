@@ -33,17 +33,81 @@ function runTests(runners: RunnerBase[]) {
     }
 }
 
+function tryGetConfig(args: string[]) {
+    const prefix = "--config=";
+    return ts.forEach(args, arg => arg.lastIndexOf(prefix, 0) === 0 && arg.substr(prefix.length));
+}
+
+function createRunner(kind: TestRunnerKind): RunnerBase {
+    switch (kind) {
+        case "conformance": 
+            return new CompilerBaselineRunner(CompilerTestType.Conformance); 
+        case "compiler": 
+            return new CompilerBaselineRunner(CompilerTestType.Regressions);
+        case "fourslash":
+            return new FourSlashRunner(FourSlashTestType.Native);
+        case "fourslash-shims":
+            return new FourSlashRunner(FourSlashTestType.Shims);
+        case "fourslash-shims-pp":
+            return new FourSlashRunner(FourSlashTestType.ShimsWithPreprocess);
+        case "fourslash-server":
+            return new FourSlashRunner(FourSlashTestType.Server);
+        case "project":
+            return new ProjectRunner();
+        case "rwc":
+            return new RWCRunner();
+        case "test262":
+            return new Test262BaselineRunner();
+    }
+}
+
 // users can define tests to run in mytest.config that will override cmd line args, otherwise use cmd line args (test.config), otherwise no options
-let mytestconfig = "mytest.config";
-let testconfig = "test.config";
+
+const mytestconfig = "mytest.config";
+const testconfig = "test.config";
+
+const customConfig = tryGetConfig(Harness.IO.args());
 let testConfigFile =
-    Harness.IO.fileExists(mytestconfig) ? Harness.IO.readFile(mytestconfig) :
-    (Harness.IO.fileExists(testconfig) ? Harness.IO.readFile(testconfig) : "");
+    customConfig && Harness.IO.fileExists(customConfig) 
+        ? Harness.IO.readFile(customConfig)
+        : Harness.IO.fileExists(mytestconfig) 
+            ? Harness.IO.readFile(mytestconfig) 
+            : Harness.IO.fileExists(testconfig) ? Harness.IO.readFile(testconfig) : "";
+
+let parallelTasksFolder: string;
+let workerCount: number;
+
+interface TestConfig {
+    light?: boolean;
+    parallelTasksFolder?: string;
+    workerCount?: number;
+    tasks?: TaskSet[];
+    test?: string[];
+}
+interface TaskSet {
+    runner: TestRunnerKind;
+    files: string[];
+}
 
 if (testConfigFile !== "") {
-    const testConfig = JSON.parse(testConfigFile);
+    const testConfig = <TestConfig>JSON.parse(testConfigFile);
     if (testConfig.light) {
         Harness.lightMode = true;
+    }
+    if (testConfig.parallelTasksFolder) {
+        parallelTasksFolder = testConfig.parallelTasksFolder;
+    }
+    if (testConfig.workerCount) {
+        workerCount = testConfig.workerCount;
+    }
+    if (testConfig.tasks) {
+        for (const taskSet of testConfig.tasks) {
+            var runner = createRunner(taskSet.runner);
+            for (const f of taskSet.files) {
+                runner.addTest(f);
+            }
+            runners.push(runner);
+        }
     }
 
     if (testConfig.test && testConfig.test.length > 0) {
@@ -108,4 +172,35 @@ if (runners.length === 0) {
     // runners.push(new GeneratedFourslashRunner());
 }
 
-runTests(runners);
+if (parallelTasksFolder) {
+    const workerConfigs: TestConfig[] = [];
+    for (let i = 0; i < workerCount; i++) {
+        // pass light mode settings to workers
+        workerConfigs.push({ light: Harness.lightMode, tasks: [] });
+    }
+    const all: any[] = [];
+    
+    for (const runner of runners) {
+        const files = runner.enumerateTestFiles();
+        
+        all.push({ kind: runner.kind(), files });
+        
+        const chunkSize = files.length / workerCount + 1;
+        for (let i = 0; i < workerCount; i++) {
+            const startPos = i * chunkSize;
+            const len = Math.min(chunkSize, files.length - startPos);
+            workerConfigs[i].tasks.push({
+                runner: runner.kind(),
+                files: files.slice(startPos, startPos + len)
+            });
+        }
+    }
+    for (let i = 0; i < workerCount; i++) {
+        Harness.IO.writeFile(ts.combinePaths(parallelTasksFolder, `task-config${i}.json`), JSON.stringify(workerConfigs[i]));
+        ts.sys.write("@");
+    }
+    //Harness.IO.writeFile(ts.combinePaths(parallelTasksFolder, `all.json`), JSON.stringify(all));
+}
+else {
+    runTests(runners);
+}
