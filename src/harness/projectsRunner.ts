@@ -50,7 +50,6 @@ class ProjectRunner extends RunnerBase {
         if (this.tests.length === 0) {
             const testFiles = this.enumerateTestFiles();
             testFiles.forEach(fn => {
-                fn = fn.replace(/\\/g, "/");
                 this.runProjectTestCase(fn);
             });
         }
