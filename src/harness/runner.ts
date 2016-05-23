@@ -206,10 +206,8 @@ if (parallelTasksFolder) {
 
     for (let i = 0; i < workerCount; i++) {
         const config = workerConfigs[i];
-        if (i === workerCount - 1) {
-            // use last worker to run unit tests
-            config.runUnitTests = true;
-        }
+        // use last worker to run unit tests
+        config.runUnitTests = i === workerCount - 1;
         Harness.IO.writeFile(ts.combinePaths(parallelTasksFolder, `task-config${i}.json`), JSON.stringify(workerConfigs[i]));
     }
 }
