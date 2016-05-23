@@ -42,9 +42,9 @@ function tryGetConfig(args: string[]) {
 
 function createRunner(kind: TestRunnerKind): RunnerBase {
     switch (kind) {
-        case "conformance": 
-            return new CompilerBaselineRunner(CompilerTestType.Conformance); 
-        case "compiler": 
+        case "conformance":
+            return new CompilerBaselineRunner(CompilerTestType.Conformance);
+        case "compiler":
             return new CompilerBaselineRunner(CompilerTestType.Regressions);
         case "fourslash":
             return new FourSlashRunner(FourSlashTestType.Native);
@@ -70,10 +70,10 @@ const testconfigFileName = "test.config";
 
 const customConfig = tryGetConfig(Harness.IO.args());
 let testConfigContent =
-    customConfig && Harness.IO.fileExists(customConfig) 
+    customConfig && Harness.IO.fileExists(customConfig)
         ? Harness.IO.readFile(customConfig)
-        : Harness.IO.fileExists(mytestconfigFileName) 
-            ? Harness.IO.readFile(mytestconfigFileName) 
+        : Harness.IO.fileExists(mytestconfigFileName)
+            ? Harness.IO.readFile(mytestconfigFileName)
             : Harness.IO.fileExists(testconfigFileName) ? Harness.IO.readFile(testconfigFileName) : "";
 
 let parallelTasksFolder: string;
@@ -110,7 +110,7 @@ if (testConfigContent !== "") {
     }
     if (testConfig.tasks) {
         for (const taskSet of testConfig.tasks) {
-            var runner = createRunner(taskSet.runner);
+            const runner = createRunner(taskSet.runner);
             for (const file of taskSet.files) {
                 runner.addTest(file);
             }
@@ -188,8 +188,7 @@ if (parallelTasksFolder) {
         // pass light mode settings to workers
         workerConfigs.push({ light: Harness.lightMode, tasks: [] });
     }
-    const all: any[] = [];
-    
+
     for (const runner of runners) {
         const files = runner.enumerateTestFiles();
         const chunkSize = Math.floor(files.length / workerCount) + 1; // add extra 1 to prevent missing tests due to rounding
