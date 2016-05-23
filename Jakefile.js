@@ -734,7 +734,7 @@ function runConsoleTests(defaultReporter, runInParallel) {
         var cmd = "mocha" + (debug ? " --debug-brk" : "") + " -R " + reporter + tests + colors + ' -t ' + testTimeout + ' ' + run;
         console.log(cmd);
         exec(cmd, function () {
-            if (lintFlag && i === 0) {
+            if (i === 0) {
                 runLinter();
             }
             finish();
@@ -773,6 +773,9 @@ function runConsoleTests(defaultReporter, runInParallel) {
         complete();
     }
     function runLinter() {
+        if (!lintFlag) {
+            return;
+        }
         var lint = jake.Task['lint'];
         lint.addListener('complete', function () {
             complete();
