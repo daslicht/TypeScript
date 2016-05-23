@@ -35,7 +35,9 @@ function runTests(runners: RunnerBase[]) {
 
 function tryGetConfig(args: string[]) {
     const prefix = "--config=";
-    return ts.forEach(args, arg => arg.lastIndexOf(prefix, 0) === 0 && arg.substr(prefix.length));
+    const configPath = ts.forEach(args, arg => arg.lastIndexOf(prefix, 0) === 0 && arg.substr(prefix.length));
+    // strip leading and trailing quotes from the path (necessary on Windows since shell does not do it automatically)
+    return configPath && configPath.replace(/(^[\"'])|([\"']$)/g, "");
 }
 
 function createRunner(kind: TestRunnerKind): RunnerBase {
@@ -63,19 +65,20 @@ function createRunner(kind: TestRunnerKind): RunnerBase {
 
 // users can define tests to run in mytest.config that will override cmd line args, otherwise use cmd line args (test.config), otherwise no options
 
-const mytestconfig = "mytest.config";
-const testconfig = "test.config";
+const mytestconfigFileName = "mytest.config";
+const testconfigFileName = "test.config";
 
 const customConfig = tryGetConfig(Harness.IO.args());
-let testConfigFile =
+let testConfigContent =
     customConfig && Harness.IO.fileExists(customConfig) 
         ? Harness.IO.readFile(customConfig)
-        : Harness.IO.fileExists(mytestconfig) 
-            ? Harness.IO.readFile(mytestconfig) 
-            : Harness.IO.fileExists(testconfig) ? Harness.IO.readFile(testconfig) : "";
+        : Harness.IO.fileExists(mytestconfigFileName) 
+            ? Harness.IO.readFile(mytestconfigFileName) 
+            : Harness.IO.fileExists(testconfigFileName) ? Harness.IO.readFile(testconfigFileName) : "";
 
 let parallelTasksFolder: string;
 let workerCount: number;
+let runUnitTests = true;
 
 interface TestConfig {
     light?: boolean;
@@ -83,19 +86,24 @@ interface TestConfig {
     workerCount?: number;
     tasks?: TaskSet[];
     test?: string[];
+    runUnitTests?: boolean;
 }
+
 interface TaskSet {
     runner: TestRunnerKind;
     files: string[];
 }
 
-if (testConfigFile !== "") {
-    const testConfig = <TestConfig>JSON.parse(testConfigFile);
+if (testConfigContent !== "") {
+    const testConfig = <TestConfig>JSON.parse(testConfigContent);
     if (testConfig.light) {
         Harness.lightMode = true;
     }
     if (testConfig.parallelTasksFolder) {
         parallelTasksFolder = testConfig.parallelTasksFolder;
+    }
+    if (testConfig.runUnitTests !== undefined) {
+        runUnitTests = testConfig.runUnitTests;
     }
     if (testConfig.workerCount) {
         workerCount = testConfig.workerCount;
@@ -103,8 +111,8 @@ if (testConfigFile !== "") {
     if (testConfig.tasks) {
         for (const taskSet of testConfig.tasks) {
             var runner = createRunner(taskSet.runner);
-            for (const f of taskSet.files) {
-                runner.addTest(f);
+            for (const file of taskSet.files) {
+                runner.addTest(file);
             }
             runners.push(runner);
         }
@@ -173,6 +181,8 @@ if (runners.length === 0) {
 }
 
 if (parallelTasksFolder) {
+    // this instance should only partition work but not run actual tests
+    runUnitTests = false;
     const workerConfigs: TestConfig[] = [];
     for (let i = 0; i < workerCount; i++) {
         // pass light mode settings to workers
@@ -182,25 +192,32 @@ if (parallelTasksFolder) {
     
     for (const runner of runners) {
         const files = runner.enumerateTestFiles();
-        
-        all.push({ kind: runner.kind(), files });
-        
-        const chunkSize = files.length / workerCount + 1;
+        const chunkSize = Math.floor(files.length / workerCount) + 1; // add extra 1 to prevent missing tests due to rounding
         for (let i = 0; i < workerCount; i++) {
             const startPos = i * chunkSize;
             const len = Math.min(chunkSize, files.length - startPos);
-            workerConfigs[i].tasks.push({
-                runner: runner.kind(),
-                files: files.slice(startPos, startPos + len)
-            });
+            if (len !== 0) {
+                workerConfigs[i].tasks.push({
+                    runner: runner.kind(),
+                    files: files.slice(startPos, startPos + len)
+                });
+            }
         }
     }
+
     for (let i = 0; i < workerCount; i++) {
+        const config = workerConfigs[i];
+        if (i === workerCount - 1) {
+            // use last worker to run unit tests
+            config.runUnitTests = true;
+        }
         Harness.IO.writeFile(ts.combinePaths(parallelTasksFolder, `task-config${i}.json`), JSON.stringify(workerConfigs[i]));
-        ts.sys.write("@");
     }
-    //Harness.IO.writeFile(ts.combinePaths(parallelTasksFolder, `all.json`), JSON.stringify(all));
 }
 else {
     runTests(runners);
+}
+if (!runUnitTests) {
+    // patch describe to skip unit tests
+    describe = <any>describe.skip;
 }
