@@ -76,13 +76,13 @@ let testConfigContent =
             ? Harness.IO.readFile(mytestconfigFileName)
             : Harness.IO.fileExists(testconfigFileName) ? Harness.IO.readFile(testconfigFileName) : "";
 
-let parallelTasksFolder: string;
+let taskConfigsFolder: string;
 let workerCount: number;
 let runUnitTests = true;
 
 interface TestConfig {
     light?: boolean;
-    parallelTasksFolder?: string;
+    taskConfigsFolder?: string;
     workerCount?: number;
     tasks?: TaskSet[];
     test?: string[];
@@ -99,8 +99,8 @@ if (testConfigContent !== "") {
     if (testConfig.light) {
         Harness.lightMode = true;
     }
-    if (testConfig.parallelTasksFolder) {
-        parallelTasksFolder = testConfig.parallelTasksFolder;
+    if (testConfig.taskConfigsFolder) {
+        taskConfigsFolder = testConfig.taskConfigsFolder;
     }
     if (testConfig.runUnitTests !== undefined) {
         runUnitTests = testConfig.runUnitTests;
@@ -180,8 +180,8 @@ if (runners.length === 0) {
     // runners.push(new GeneratedFourslashRunner());
 }
 
-if (parallelTasksFolder) {
-    // this instance should only partition work but not run actual tests
+if (taskConfigsFolder) {
+    // this instance of mocha should only partition work but not run actual tests
     runUnitTests = false;
     const workerConfigs: TestConfig[] = [];
     for (let i = 0; i < workerCount; i++) {
@@ -208,13 +208,13 @@ if (parallelTasksFolder) {
         const config = workerConfigs[i];
         // use last worker to run unit tests
         config.runUnitTests = i === workerCount - 1;
-        Harness.IO.writeFile(ts.combinePaths(parallelTasksFolder, `task-config${i}.json`), JSON.stringify(workerConfigs[i]));
+        Harness.IO.writeFile(ts.combinePaths(taskConfigsFolder, `task-config${i}.json`), JSON.stringify(workerConfigs[i]));
     }
 }
 else {
     runTests(runners);
 }
 if (!runUnitTests) {
-    // patch describe to skip unit tests
+    // patch `describe` to skip unit tests
     describe = <any>describe.skip;
 }

@@ -680,9 +680,9 @@ function cleanTestDirs() {
 }
 
 // used to pass data from jake command line directly to run.js
-function writeTestConfigFile(tests, light, parallelTasksFolder, workerCount, testConfigFile) {
-    console.log('Running test(s): ' + tests);
-    var testConfigContents = JSON.stringify({ test: [tests], light: light, workerCount: workerCount, parallelTasksFolder: parallelTasksFolder });
+function writeTestConfigFile(tests, light, taskConfigsFolder, workerCount, testConfigFile) {
+    var testConfigContents = JSON.stringify({ test: tests ? [tests] : undefined, light: light, workerCount: workerCount, taskConfigsFolder: taskConfigsFolder });
+    console.log('Running tests with config: ' + testConfigContents);
     fs.writeFileSync('test.config', testConfigContents);
 }
 
@@ -701,21 +701,22 @@ function runConsoleTests(defaultReporter, runInParallel) {
     if(fs.existsSync(testConfigFile)) {
         fs.unlinkSync(testConfigFile);
     }
-    var workerCount, parallelTasksFolder;
+    var workerCount, taskConfigsFolder;
     if (runInParallel) {
+        // generate name to store task configuration files
         var prefix = os.tmpdir() + "/ts-tests";
         var i = 1;
         do {
-            parallelTasksFolder = prefix + i;
+            taskConfigsFolder = prefix + i;
             i++;
-        } while (fs.existsSync(parallelTasksFolder));
-        fs.mkdirSync(parallelTasksFolder);
-        console.log(parallelTasksFolder);
+        } while (fs.existsSync(taskConfigsFolder));
+        fs.mkdirSync(taskConfigsFolder);
+
         workerCount = process.env.workerCount || os.cpus().length;
     }
 
-    if (tests || light || parallelTasksFolder) {
-        writeTestConfigFile(tests, light, parallelTasksFolder, workerCount, testConfigFile);
+    if (tests || light || taskConfigsFolder) {
+        writeTestConfigFile(tests, light, taskConfigsFolder, workerCount, testConfigFile);
     }
 
     if (tests && tests.toLocaleLowerCase() === "rwc") {
@@ -742,15 +743,16 @@ function runConsoleTests(defaultReporter, runInParallel) {
         
     }
     else {
-        // equally partition tests among workers
+        // run task to load all tests and partition then between workers 
         var cmd = "mocha " + " -R min " + colors + run;
         console.log(cmd);
         exec(cmd, function() {
-            var configFiles = fs.readdirSync(parallelTasksFolder);
+            // read all configuration files and spawn a worker for every config
+            var configFiles = fs.readdirSync(taskConfigsFolder);
             var counter = configFiles.length;
             // schedule work for chunks
             configFiles.forEach(function (f) {
-                var configPath = path.join(parallelTasksFolder, f);
+                var configPath = path.join(taskConfigsFolder, f);
                 var workerCmd = "mocha" + " -t " + testTimeout + " -R " + reporter + " " + colors + " " + run + " --config='" + configPath + "'";
                 console.log(workerCmd);
                 exec(workerCmd, finishWorker, finishWorker) 
@@ -759,10 +761,10 @@ function runConsoleTests(defaultReporter, runInParallel) {
             function finishWorker() {
                 counter--;
                 if (counter === 0) {
-                    runLinter();
                     // last worker clean everything and runs linter
+                    runLinter();
                     deleteTemporaryProjectOutput();
-                    jake.rmRf(parallelTasksFolder);
+                    jake.rmRf(taskConfigsFolder);
                 }
                 complete();
             }
@@ -787,7 +789,7 @@ function runConsoleTests(defaultReporter, runInParallel) {
 var testTimeout = 20000;
 desc("Runs all the tests in parallel using the built run.js file. Optional arguments are: t[ests]=category1|category2|... d[ebug]=true.");
 task("runtests-parallel", ["build-rules", "tests", builtLocalDirectory], function() {
-    runConsoleTests('min', /*runInParalle;*/ true);
+    runConsoleTests('min', /*runInParallel*/ true);
 }, {async: true});
 
 desc("Runs the tests using the built run.js file. Optional arguments are: t[ests]=regex r[eporter]=[list|spec|json|<more>] d[ebug]=true color[s]=false lint=true.");
