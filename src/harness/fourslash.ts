@@ -1994,14 +1994,20 @@ namespace FourSlash {
 
         public printNavigationBar(showChildItems = false) {
             const items = this.languageService.getNavigationBarItems(this.activeFile.fileName);
-            const length = items && items.length;
 
-            Harness.IO.log(`Navigation bar (${length} items)`);
+            if (true) {
+                const length = items && items.length;
 
-            for (let i = 0; i < length; i++) {
-                const item = items[i];
-                Harness.IO.log(`${repeatString(item.indent, " ")}name: ${item.text}, kind: ${item.kind}, childItems: ${item.childItems.map(child => child.text)}`);
+                Harness.IO.log(`Navigation bar (${length} items)`);
+
+                for (let i = 0; i < length; i++) {
+                    const item = items[i];
+                    Harness.IO.log(`${repeatString(item.indent, " ")}name: ${item.text}, kind: ${item.kind}, childItems: ${item.childItems.map(child => child.text)}`);
+                }
             }
+            //else {
+                Harness.IO.log(JSON.stringify(items, undefined, 2));
+            //}
         }
 
         private getOccurrencesAtCurrentPosition() {

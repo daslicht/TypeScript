@@ -1495,7 +1495,7 @@ namespace ts {
         return false;
     }
 
-    export function isDeclaration(node: Node): boolean {
+    export function isDeclaration(node: Node): node is Declaration {
         switch (node.kind) {
             case SyntaxKind.ArrowFunction:
             case SyntaxKind.BindingElement:
